@@ -3,13 +3,16 @@ from dotenv import load_dotenv
 import os
 import shutil
 from document_processor import extract_text_from_pdf, chunk_text
+from openai_handler import generate_embedding
+from pinecone_handler import store_chunks, create_index_if_not_exists
 
 load_dotenv()
 
 app = FastAPI(title="RAG Knowledge Assistant")
 
-# Create uploads folder if it doesn't exist
+# Create uploads folder and Pinecone index on startup
 os.makedirs("uploads", exist_ok=True)
+create_index_if_not_exists()
 
 
 @app.get("/")
@@ -24,7 +27,7 @@ def health_check():
 
 @app.post("/upload")
 async def upload_document(file: UploadFile = File(...)):
-    # Only accept PDFs for now
+    # Only accept PDFs
     if not file.filename.endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files supported")
 
@@ -37,10 +40,13 @@ async def upload_document(file: UploadFile = File(...)):
     text = extract_text_from_pdf(file_path)
     chunks = chunk_text(text)
 
+    # Generate embeddings and store in Pinecone
+    chunk_count = store_chunks(chunks, file.filename)
+
     return {
         "filename": file.filename,
-        "chunks_created": len(chunks),
-        "message": "Document uploaded and processed",
+        "chunks_created": chunk_count,
+        "message": "Document uploaded and indexed successfully",
     }
 
 
