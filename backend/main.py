@@ -84,6 +84,26 @@ def check_status(job_id: str):
     return jobs[job_id]
 
 
+@app.post("/query")
+async def query_documents(query: str):
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    # Search for similar chunks
+    from pinecone_handler import search_similar_chunks
+    from openai_handler import generate_answer
+
+    context_chunks = search_similar_chunks(query, top_k=3)
+
+    if not context_chunks:
+        return {"query": query, "answer": "No relevant documents found.", "sources": []}
+
+    # Generate answer using GPT-4
+    answer = generate_answer(query, context_chunks)
+
+    return {"query": query, "answer": answer, "sources": context_chunks}
+
+
 if __name__ == "__main__":
     import uvicorn
 
