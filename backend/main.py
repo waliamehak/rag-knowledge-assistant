@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
 from dotenv import load_dotenv
 import os
 import shutil
@@ -6,10 +6,18 @@ import uuid
 from document_processor import extract_text_from_pdf, chunk_text
 from openai_handler import generate_embedding
 from pinecone_handler import store_chunks, create_index_if_not_exists
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 load_dotenv()
 
 app = FastAPI(title="RAG Knowledge Assistant")
+
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Create uploads folder and Pinecone index on startup
 os.makedirs("uploads", exist_ok=True)
@@ -85,7 +93,8 @@ def check_status(job_id: str):
 
 
 @app.post("/query")
-async def query_documents(query: str):
+@limiter.limit("10/minute")
+async def query_documents(request: Request, query: str):
     if not query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
