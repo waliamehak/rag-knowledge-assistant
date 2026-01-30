@@ -21,7 +21,7 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Create uploads folder and Pinecone index on startup
-os.makedirs("uploads", exist_ok=True)
+os.makedirs("/tmp/uploads", exist_ok=True)
 create_index_if_not_exists()
 
 # Store job status in memory
@@ -77,7 +77,7 @@ async def upload_document(
     job_id = str(uuid.uuid4())
 
     # Save file
-    file_path = f"uploads/{file.filename}"
+    file_path = f"/tmp/uploads/{file.filename}"
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
