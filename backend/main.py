@@ -9,6 +9,7 @@ from pinecone_handler import store_chunks, create_index_if_not_exists
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from s3_handler import upload_to_s3
 
 load_dotenv()
 
@@ -32,6 +33,10 @@ def process_document_task(job_id, file_path, filename):
     try:
         jobs[job_id]["status"] = "processing"
 
+        # Upload to S3
+        s3_key = f"documents/{filename}"
+        upload_to_s3(file_path, s3_key)
+
         # Extract and chunk text
         text = extract_text_from_pdf(file_path)
         chunks = chunk_text(text)
@@ -39,8 +44,12 @@ def process_document_task(job_id, file_path, filename):
         # Store in Pinecone
         chunk_count = store_chunks(chunks, filename)
 
+        # Clean up local file
+        os.remove(file_path)
+
         jobs[job_id]["status"] = "completed"
         jobs[job_id]["chunks_created"] = chunk_count
+        jobs[job_id]["s3_key"] = s3_key
     except Exception as e:
         jobs[job_id]["status"] = "failed"
         jobs[job_id]["error"] = str(e)
