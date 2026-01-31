@@ -1,0 +1,2 @@
+[console_scripts]
+repl = scripts.repl:main
