@@ -1,20 +1,22 @@
 # RAG Knowledge Assistant
 
-AI-powered document Q&A system using Retrieval-Augmented Generation.
+This project allows users to upload PDF files and ask natural language questions about their content. Answers are generated using GPT-4 and backed by semantic search over the uploaded documents.
 
 ## Features
 
-- Upload PDF documents
+- Upload PDF documents (stored in S3-direct uploads)
+- Extract text and generate vector embeddings
 - Ask questions in natural language
-- Get GPT-4 answers with source citations
-- Async background processing
-- Rate limiting (10 queries/min)
-- Serverless deployment
+- Semantic search over document content  
+- GPT-4 powered answers with citations  
+- Asynchronous background processing  
+- API rate limiting by IP (10 queries/min)
+- Serverless deployment on AWS Lambda
 
 ## Tech Stack
 
-**Backend:** Python, FastAPI, OpenAI GPT-4, Pinecone, AWS Lambda, S3, API Gateway  
-**Frontend:** React, TypeScript, Vercel
+**Backend:** Python, FastAPI, OpenAI GPT-4 API, OpenAI Embeddings API  Pinecone Vector Database, AWS Lambda, S3, IAM, API Gateway, Uvicorn, Pydantic  
+**Frontend:** React, TypeScript, Axios, Vercel
 
 ## Live Demo
 
@@ -24,11 +26,16 @@ AI-powered document Q&A system using Retrieval-Augmented Generation.
 
 ## System Workflow
 
-1. User uploads PDF → FastAPI backend
-2. Extract text → chunk into 2048-char segments (200-char overlap)
-3. Generate embeddings (OpenAI text-embedding-3-small)
-4. Store vectors in Pinecone
-5. Query → semantic search → GPT-4 generates answer with sources
+1. User uploads a PDF document  
+2. Backend extracts raw text  
+3. Text is split into smaller chunks (2048-char segments with 200-char overlap) 
+4. Embeddings are generated using OpenAI (OpenAI text-embedding-3-small)
+5. Vectors are stored in Pinecone  
+6. When a user asks a question:  
+   - Relevant chunks are retrieved using semantic search  
+   - Context is sent to GPT-4  
+   - A final answer is generated with references  
+
 
 ## Local Setup
 
