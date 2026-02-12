@@ -11,6 +11,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from s3_handler import upload_to_s3
 from fastapi.middleware.cors import CORSMiddleware
+from redis_handler import get_cached_query, cache_query_result
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 # Rate limiting
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
@@ -115,6 +117,11 @@ async def query_documents(request: Request, query: str):
     if not query:
         raise HTTPException(status_code=400, detail="Query cannot be empty")
 
+    # Check Redis cache first
+    cached_result = get_cached_query(query)
+    if cached_result:
+        return cached_result
+
     # Search for similar chunks
     from pinecone_handler import search_similar_chunks
     from openai_handler import generate_answer
@@ -122,12 +129,23 @@ async def query_documents(request: Request, query: str):
     context_chunks = search_similar_chunks(query, top_k=3)
 
     if not context_chunks:
-        return {"query": query, "answer": "No relevant documents found.", "sources": []}
+        result = {
+            "query": query,
+            "answer": "No relevant documents found.",
+            "sources": [],
+        }
+        cache_query_result(query, result)
+        return result
 
     # Generate answer using GPT-4
     answer = generate_answer(query, context_chunks)
 
-    return {"query": query, "answer": answer, "sources": context_chunks}
+    result = {"query": query, "answer": answer, "sources": context_chunks}
+
+    # Cache the result
+    cache_query_result(query, result)
+
+    return result
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-#!/var/lang/bin/python3.13
+#!/Users/mw/Projects/rag-knowledge-assistant/backend/venv/bin/python3.13
 
 import sys
 import json
