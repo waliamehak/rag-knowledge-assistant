@@ -1,4 +1,5 @@
 import PyPDF2
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
 def extract_text_from_pdf(file_path):
@@ -11,16 +12,11 @@ def extract_text_from_pdf(file_path):
     return text
 
 
-def chunk_text(text, chunk_size=512, overlap=50):
-    # Split text into chunks with overlap
-    chunks = []
-    start = 0
-    text_length = len(text)
-
-    while start < text_length:
-        end = start + chunk_size
-        chunk = text[start:end]
-        chunks.append(chunk)
-        start += chunk_size - overlap
-
+def chunk_text(text):
+    # Split text into chunks respecting sentence boundaries
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+    )
+    chunks = splitter.split_text(text)
     return chunks

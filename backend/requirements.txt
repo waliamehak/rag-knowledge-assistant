@@ -41,3 +41,6 @@ urllib3==2.6.3
 uvicorn==0.40.0
 wrapt==2.1.1
 mangum
+langchain-text-splitters
+langchain-core==0.3.83
+langchain-text-splitters==0.3.11
