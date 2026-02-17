@@ -9,7 +9,7 @@ from pinecone_handler import store_chunks, create_index_if_not_exists
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from s3_handler import upload_to_s3
+from s3_handler import upload_to_s3, download_from_s3, generate_presigned_url
 from fastapi.middleware.cors import CORSMiddleware
 from redis_handler import get_cached_query, cache_query_result
 
@@ -65,6 +65,28 @@ def process_document_task(job_id, file_path, filename):
         jobs[job_id]["error"] = str(e)
 
 
+def process_document_from_s3(job_id, s3_key, filename):
+    try:
+        jobs[job_id]["status"] = "processing"
+
+        # File already in S3 from direct client upload — download to /tmp for processing
+        local_path = f"/tmp/uploads/{filename}"
+        download_from_s3(s3_key, local_path)
+
+        text = extract_text_from_pdf(local_path)
+        chunks = chunk_text(text)
+        chunk_count = store_chunks(chunks, filename)
+
+        os.remove(local_path)
+
+        jobs[job_id]["status"] = "completed"
+        jobs[job_id]["chunks_created"] = chunk_count
+        jobs[job_id]["s3_key"] = s3_key
+    except Exception as e:
+        jobs[job_id]["status"] = "failed"
+        jobs[job_id]["error"] = str(e)
+
+
 @app.get("/")
 def read_root():
     return {"message": "RAG API is running"}
@@ -73,6 +95,35 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+
+@app.post("/presign")
+async def get_presigned_url(filename: str):
+    if not filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files supported")
+
+    job_id = str(uuid.uuid4())
+    s3_key = f"documents/{filename}"
+
+    # Generate a temporary S3 URL — client uploads directly, bypassing the 6MB API Gateway limit
+    upload_url = generate_presigned_url(s3_key)
+
+    jobs[job_id] = {"status": "pending", "filename": filename}
+
+    return {"job_id": job_id, "upload_url": upload_url, "s3_key": s3_key}
+
+
+@app.post("/confirm")
+async def confirm_upload(background_tasks: BackgroundTasks, job_id: str, s3_key: str):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    filename = jobs[job_id]["filename"]
+    jobs[job_id]["status"] = "queued"
+
+    background_tasks.add_task(process_document_from_s3, job_id, s3_key, filename)
+
+    return {"job_id": job_id, "status": "queued"}
 
 
 @app.post("/upload")
@@ -126,7 +177,7 @@ async def query_documents(request: Request, query: str):
     from pinecone_handler import search_similar_chunks
     from openai_handler import generate_answer
 
-    context_chunks = search_similar_chunks(query, top_k=3)
+    context_chunks = search_similar_chunks(query, top_k=5)
 
     if not context_chunks:
         result = {
