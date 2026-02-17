@@ -1,6 +1,6 @@
 from pinecone import Pinecone, ServerlessSpec
 import os
-from openai_handler import generate_embedding
+from openai_handler import generate_embedding, generate_embeddings_batch
 
 # Initialize Pinecone
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
@@ -26,13 +26,12 @@ def store_chunks(chunks, filename):
     # Store document chunks in Pinecone with embeddings
     index = create_index_if_not_exists()
 
+    # Generate all embeddings in one batched API call instead of one per chunk
+    embeddings = generate_embeddings_batch(chunks)
+
     vectors = []
-    for i, chunk in enumerate(chunks):
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
         vector_id = f"{filename}_{i}"
-
-        # Generate embedding for this chunk
-        embedding = generate_embedding(chunk)
-
         vectors.append(
             {
                 "id": vector_id,
