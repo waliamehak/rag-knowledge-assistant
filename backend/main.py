@@ -12,6 +12,7 @@ from slowapi.errors import RateLimitExceeded
 from s3_handler import upload_to_s3, download_from_s3, generate_presigned_url
 from fastapi.middleware.cors import CORSMiddleware
 from redis_handler import get_cached_query, cache_query_result
+from db_handler import create_jobs_table, create_job, update_job, get_job
 
 load_dotenv()
 
@@ -33,15 +34,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Create uploads folder and Pinecone index on startup
 os.makedirs("/tmp/uploads", exist_ok=True)
 create_index_if_not_exists()
-
-# Store job status in memory
-jobs = {}
+create_jobs_table()
 
 
 def process_document_task(job_id, file_path, filename):
     # Background task to process document
     try:
-        jobs[job_id]["status"] = "processing"
+        update_job(job_id, status="processing")
 
         # Upload to S3
         s3_key = f"documents/{filename}"
@@ -57,17 +56,14 @@ def process_document_task(job_id, file_path, filename):
         # Clean up local file
         os.remove(file_path)
 
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["chunks_created"] = chunk_count
-        jobs[job_id]["s3_key"] = s3_key
+        update_job(job_id, status="completed", chunks_created=chunk_count, s3_key=s3_key)
     except Exception as e:
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
+        update_job(job_id, status="failed", error=str(e))
 
 
 def process_document_from_s3(job_id, s3_key, filename):
     try:
-        jobs[job_id]["status"] = "processing"
+        update_job(job_id, status="processing")
 
         # File already in S3 from direct client upload — download to /tmp for processing
         local_path = f"/tmp/uploads/{filename}"
@@ -79,12 +75,9 @@ def process_document_from_s3(job_id, s3_key, filename):
 
         os.remove(local_path)
 
-        jobs[job_id]["status"] = "completed"
-        jobs[job_id]["chunks_created"] = chunk_count
-        jobs[job_id]["s3_key"] = s3_key
+        update_job(job_id, status="completed", chunks_created=chunk_count, s3_key=s3_key)
     except Exception as e:
-        jobs[job_id]["status"] = "failed"
-        jobs[job_id]["error"] = str(e)
+        update_job(job_id, status="failed", error=str(e))
 
 
 @app.get("/")
@@ -108,20 +101,19 @@ async def get_presigned_url(filename: str):
     # Generate a temporary S3 URL — client uploads directly, bypassing the 6MB API Gateway limit
     upload_url = generate_presigned_url(s3_key)
 
-    jobs[job_id] = {"status": "pending", "filename": filename}
+    create_job(job_id, filename, status="pending")
 
     return {"job_id": job_id, "upload_url": upload_url, "s3_key": s3_key}
 
 
 @app.post("/confirm")
 async def confirm_upload(background_tasks: BackgroundTasks, job_id: str, s3_key: str):
-    if job_id not in jobs:
+    job = get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    filename = jobs[job_id]["filename"]
-    jobs[job_id]["status"] = "queued"
-
-    background_tasks.add_task(process_document_from_s3, job_id, s3_key, filename)
+    update_job(job_id, status="queued")
+    background_tasks.add_task(process_document_from_s3, job_id, s3_key, job["filename"])
 
     return {"job_id": job_id, "status": "queued"}
 
@@ -142,10 +134,7 @@ async def upload_document(
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Initialize job status
-    jobs[job_id] = {"status": "queued", "filename": file.filename}
-
-    # Start background processing
+    create_job(job_id, file.filename, status="queued")
     background_tasks.add_task(process_document_task, job_id, file_path, file.filename)
 
     return {
@@ -157,9 +146,10 @@ async def upload_document(
 
 @app.get("/status/{job_id}")
 def check_status(job_id: str):
-    if job_id not in jobs:
+    job = get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return jobs[job_id]
+    return job
 
 
 @app.post("/query")

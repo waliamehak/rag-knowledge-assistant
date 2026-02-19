@@ -43,4 +43,4 @@ wrapt==2.1.1
 mangum
 langchain-text-splitters
 langchain-core==0.3.83
-langchain-text-splitters==0.3.11
+langchain-text-splitters==0.3.11psycopg2-binary
