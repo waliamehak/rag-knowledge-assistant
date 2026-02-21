@@ -57,6 +57,13 @@ def search_similar_chunks(query, top_k=3):
     # Search Pinecone
     results = index.query(vector=query_embedding, top_k=top_k, include_metadata=True)
 
-    # Extract text chunks from results
-    chunks = [match["metadata"]["text"] for match in results["matches"]]
+    # Return text alongside source metadata so callers know which doc each chunk came from
+    chunks = [
+        {
+            "text": match["metadata"]["text"],
+            "filename": match["metadata"]["filename"],
+            "chunk_index": match["metadata"]["chunk_index"],
+        }
+        for match in results["matches"]
+    ]
     return chunks

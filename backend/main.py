@@ -182,7 +182,7 @@ async def query_documents(request: Request, query: str):
         return result
 
     # Generate answer using GPT-4
-    answer = generate_answer(query, context_chunks)
+    answer = generate_answer(query, [c["text"] for c in context_chunks])
 
     result = {"query": query, "answer": answer, "sources": context_chunks}
 
