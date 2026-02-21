@@ -1,15 +1,16 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks, Request
+from pydantic import BaseModel
+from typing import List
 from dotenv import load_dotenv
 import os
 import shutil
 import uuid
 from document_processor import extract_text_from_pdf, chunk_text
-from openai_handler import generate_embedding
 from pinecone_handler import store_chunks, create_index_if_not_exists
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from s3_handler import upload_to_s3, download_from_s3, generate_presigned_url
+from s3_handler import upload_to_s3, generate_presigned_url
 from fastapi.middleware.cors import CORSMiddleware
 from redis_handler import get_cached_query, cache_query_result
 from db_handler import create_jobs_table, create_job, update_job, get_job
@@ -62,24 +63,6 @@ def process_document_task(job_id, file_path, filename):
         update_job(job_id, status="failed", error=str(e))
 
 
-def process_document_from_s3(job_id, s3_key, filename):
-    try:
-        update_job(job_id, status="processing")
-
-        # File already in S3 from direct client upload — download to /tmp for processing
-        local_path = f"/tmp/uploads/{filename}"
-        download_from_s3(s3_key, local_path)
-
-        text = extract_text_from_pdf(local_path)
-        chunks = chunk_text(text)
-        chunk_count = store_chunks(chunks, filename)
-
-        os.remove(local_path)
-
-        update_job(job_id, status="completed", chunks_created=chunk_count, s3_key=s3_key)
-    except Exception as e:
-        update_job(job_id, status="failed", error=str(e))
-
 
 @app.get("/")
 def read_root():
@@ -105,6 +88,25 @@ async def get_presigned_url(filename: str):
     create_job(job_id, filename, status="pending")
 
     return {"job_id": job_id, "upload_url": upload_url, "s3_key": s3_key}
+
+
+class BatchPresignRequest(BaseModel):
+    filenames: List[str]
+
+
+@app.post("/presign-batch")
+async def get_presigned_urls_batch(request: BatchPresignRequest):
+    # Generate a presigned URL and job entry for each file in one shot
+    results = []
+    for filename in request.filenames:
+        if not filename.endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"{filename} is not a PDF")
+        job_id = str(uuid.uuid4())
+        s3_key = f"documents/{filename}"
+        upload_url = generate_presigned_url(s3_key)
+        create_job(job_id, filename, status="pending")
+        results.append({"job_id": job_id, "upload_url": upload_url, "s3_key": s3_key})
+    return results
 
 
 @app.post("/confirm")
