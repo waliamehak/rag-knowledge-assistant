@@ -11,6 +11,8 @@ load_dotenv()
 
 def handler(event, context):
     # Lambda entry point — SQS triggers this with a batch of records
+    failed = []
+
     for record in event["Records"]:
         body = json.loads(record["body"])
         job_id = body["job_id"]
@@ -36,7 +38,11 @@ def handler(event, context):
 
         except Exception as e:
             update_job(job_id, status="failed", error=str(e))
+            # Report only this message as failed — SQS retries it without reprocessing the rest of the batch
+            failed.append({"itemIdentifier": record["messageId"]})
 
         finally:
             if os.path.exists(local_path):
                 os.remove(local_path)
+
+    return {"batchItemFailures": failed}
